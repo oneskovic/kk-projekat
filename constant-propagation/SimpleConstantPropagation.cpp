@@ -1,13 +1,10 @@
-#include "llvm/IR/Constants.h"
-#include "llvm/IR/Function.h"
-#include "llvm/IR/IRBuilder.h"
-#include "llvm/IR/Instructions.h"
-#include "llvm/Pass.h"
-#include "llvm/Passes/PassBuilder.h"
-#include "llvm/Passes/PassPlugin.h"
-#include <llvm-18/llvm/ADT/STLExtras.h>
-#include <llvm-18/llvm/IR/InstrTypes.h>
-#include <llvm-18/llvm/IR/Instruction.h>
+#include <llvm/ADT/STLExtras.h>
+#include <llvm/IR/Constants.h>
+#include <llvm/IR/InstrTypes.h>
+#include <llvm/IR/Instruction.h>
+#include <llvm/IR/PassManager.h>
+#include <llvm/Passes/PassBuilder.h>
+#include <llvm/Passes/PassPlugin.h>
 
 using namespace llvm;
 
