@@ -5,9 +5,9 @@
 #include "llvm/Pass.h"
 #include "llvm/Passes/PassBuilder.h"
 #include "llvm/Passes/PassPlugin.h"
+#include <llvm-18/llvm/ADT/STLExtras.h>
 #include <llvm-18/llvm/IR/InstrTypes.h>
 #include <llvm-18/llvm/IR/Instruction.h>
-#include <unordered_map>
 
 using namespace llvm;
 
@@ -54,7 +54,7 @@ public:
   }
 };
 
-static std::optional<ConstantBinaryExpression>
+std::optional<ConstantBinaryExpression>
 tryParseConstantBinaryExpression(Instruction &I) {
   if (auto *BinOp = dyn_cast<BinaryOperator>(&I)) {
     Value *Op0 = BinOp->getOperand(0);
@@ -66,30 +66,18 @@ tryParseConstantBinaryExpression(Instruction &I) {
   return std::nullopt;
 }
 
-static bool propagateConstantsOnce(BasicBlock &BB) {
-  std::unordered_map<Instruction *, Constant *> ToReplace;
-  for (auto &I : BB) {
+bool propagateConstants(BasicBlock &BB) {
+  bool Changed = false;
+  for (auto &I : make_early_inc_range(BB)) {
     if (auto Expr = tryParseConstantBinaryExpression(I)) {
       if (Constant *Result = Expr->calculate()) {
-        ToReplace[&I] = Result;
+        I.replaceAllUsesWith(Result);
+        I.removeFromParent();
+        Changed = true;
       }
     }
   }
-  for (auto &[I, Result] : ToReplace) {
-    I->replaceAllUsesWith(Result);
-    I->removeFromParent();
-  }
-  return !ToReplace.empty();
-}
-
-static bool propagateConstants(BasicBlock &BB) {
-  bool ChangedInIteration = false;
-  bool ChangedEver = false;
-  do {
-    ChangedInIteration = propagateConstantsOnce(BB);
-    ChangedEver |= ChangedInIteration;
-  } while (ChangedInIteration);
-  return ChangedEver;
+  return Changed;
 }
 
 struct SimpleConstantPropagation
