@@ -7,7 +7,6 @@
 #include "llvm/Passes/PassBuilder.h"
 #include "llvm/Passes/PassPlugin.h"
 #include "llvm/Support/raw_ostream.h"
-#include <llvm-14/llvm/Support/Debug.h>
 
 using namespace llvm;
 
@@ -55,7 +54,6 @@ struct LicmPass : PassInfoMixin<LicmPass> {
 
   PreservedAnalyses run(Function &F, FunctionAnalysisManager &AM) {
     auto &LI = AM.getResult<LoopAnalysis>(F);
-    auto &DT = AM.getResult<DominatorTreeAnalysis>(F);
     bool changed = false;
     for (Loop *L : LI) {
       BasicBlock *preheader = L->getLoopPreheader();
