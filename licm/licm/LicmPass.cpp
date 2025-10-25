@@ -25,9 +25,12 @@ struct LicmPass : PassInfoMixin<LicmPass> {
   bool isLoadInstructionInvariant(LoadInst *LI, Loop *L) {
     Value *Ptr = LI->getPointerOperand();
 
+    // Iterate over all blocks in this loop and check if anything writes to the
+    // address used in this load instruction
     for (BasicBlock *BB : L->blocks()) {
       for (Instruction &J : *BB) {
         if (auto *SI = dyn_cast<StoreInst>(&J)) {
+          // This is a store instruction check if it writes to the same address
           if (SI->getPointerOperand() == Ptr) {
             dbgs() << "Load not invariant the following instruction writes to "
                       "same addr:"
@@ -35,6 +38,9 @@ struct LicmPass : PassInfoMixin<LicmPass> {
             return false;
           }
         } else if (auto *CB = dyn_cast<CallBase>(&J)) {
+          // This is a call instruction if it writes to memory we avoid hoisting
+          // This is too strict as the called function maybe doesn't modify the
+          // address from the load
           if (CB->mayWriteToMemory()) {
             dbgs() << "Load not invariant the following instruction writes to "
                       "memory:"
@@ -73,16 +79,22 @@ struct LicmPass : PassInfoMixin<LicmPass> {
             continue;
           }
 
+          // We will hoist only instructions that are safe to speculate
+          // (the behaviour is equivalent if this instruction is executed even
+          // if the original loop wouldn't run even once)
           if (!isSafeToSpeculativelyExecute(&I)) {
             dbgs() << "Not safe to speculate\n";
             continue;
           }
 
+          // Don't hoist if an instruction may have side-effects
           if (I.mayHaveSideEffects()) {
             dbgs() << "May have side effects\n";
             continue;
           }
 
+          // Can't hoist a load instruction if it is not invariant
+          // (the isLoopInvariant is not a sufficient check for loads)
           if (auto *LI = llvm::dyn_cast<llvm::LoadInst>(&I)) {
             if (!isLoadInstructionInvariant(LI, L)) {
               dbgs() << "Load instruction not invariant\n";
@@ -90,6 +102,7 @@ struct LicmPass : PassInfoMixin<LicmPass> {
             }
           }
 
+          // Can be hoisted - move before the preheader terminator
           dbgs() << "Can be hoisted\n";
           I.moveBefore(preheader->getTerminator());
           changed = true;
