@@ -52,63 +52,75 @@ struct LicmPass : PassInfoMixin<LicmPass> {
     return true;
   }
 
-  PreservedAnalyses run(Function &F, FunctionAnalysisManager &AM) {
-    auto &LI = AM.getResult<LoopAnalysis>(F);
+  bool licmSingleLoopPass(Loop *L) {
     bool changed = false;
-    for (Loop *L : LI) {
-      BasicBlock *preheader = L->getLoopPreheader();
-      if (!preheader)
-        continue;
-      auto preheaderTerminator = preheader->getTerminator();
-      dbgs() << "Preheader terminator:" << *preheaderTerminator;
-      for (BasicBlock *BB : L->blocks()) {
-        for (auto It = BB->begin(), End = BB->end(); It != End;) {
-          Instruction &I = *It++;
-          dbgs() << I << "\n";
-          // Can't hoist terminators
-          if (I.isTerminator()) {
-            dbgs() << "Terminator\n";
-            continue;
-          }
+    BasicBlock *preheader = L->getLoopPreheader();
+    if (!preheader)
+      return false;
 
-          // If any operand of this instruction is not invariant we can't hoist
-          if (!isLoopInvariant(I, L)) {
-            dbgs() << "Not invariant\n";
-            continue;
-          }
-
-          // We will hoist only instructions that are safe to speculate
-          // (the behaviour is equivalent if this instruction is executed even
-          // if the original loop wouldn't run even once)
-          if (!isSafeToSpeculativelyExecute(&I)) {
-            dbgs() << "Not safe to speculate\n";
-            continue;
-          }
-
-          // Don't hoist if an instruction may have side-effects
-          if (I.mayHaveSideEffects()) {
-            dbgs() << "May have side effects\n";
-            continue;
-          }
-
-          // Can't hoist a load instruction if it is not invariant
-          // (the isLoopInvariant is not a sufficient check for loads)
-          if (auto *LI = llvm::dyn_cast<llvm::LoadInst>(&I)) {
-            if (!isLoadInstructionInvariant(LI, L)) {
-              dbgs() << "Load instruction not invariant\n";
-              continue;
-            }
-          }
-
-          // Can be hoisted - move before the preheader terminator
-          dbgs() << "Can be hoisted\n";
-          I.moveBefore(preheader->getTerminator());
-          changed = true;
+    auto preheaderTerminator = preheader->getTerminator();
+    dbgs() << "Preheader terminator:" << *preheaderTerminator;
+    for (BasicBlock *BB : L->blocks()) {
+      for (auto It = BB->begin(), End = BB->end(); It != End;) {
+        Instruction &I = *It++;
+        dbgs() << I << "\n";
+        // Can't hoist terminators
+        if (I.isTerminator()) {
+          dbgs() << "Terminator\n";
+          continue;
         }
+
+        // If any operand of this instruction is not invariant we can't hoist
+        if (!isLoopInvariant(I, L)) {
+          dbgs() << "Not invariant\n";
+          continue;
+        }
+
+        // We will hoist only instructions that are safe to speculate
+        // (the behaviour is equivalent if this instruction is executed even
+        // if the original loop wouldn't run even once)
+        if (!isSafeToSpeculativelyExecute(&I)) {
+          dbgs() << "Not safe to speculate\n";
+          continue;
+        }
+
+        // Don't hoist if an instruction may have side-effects
+        if (I.mayHaveSideEffects()) {
+          dbgs() << "May have side effects\n";
+          continue;
+        }
+
+        // Can't hoist a load instruction if it is not invariant
+        // (the isLoopInvariant is not a sufficient check for loads)
+        if (auto *LI = llvm::dyn_cast<llvm::LoadInst>(&I)) {
+          if (!isLoadInstructionInvariant(LI, L)) {
+            dbgs() << "Load instruction not invariant\n";
+            continue;
+          }
+        }
+
+        // Can be hoisted - move before the preheader terminator
+        dbgs() << "Can be hoisted\n";
+        I.moveBefore(preheader->getTerminator());
+        changed = true;
       }
     }
+    return changed;
+  }
 
-    return changed ? PreservedAnalyses::none() : PreservedAnalyses::all();
+  PreservedAnalyses run(Function &F, FunctionAnalysisManager &AM) {
+    auto &LI = AM.getResult<LoopAnalysis>(F);
+    bool anyLoopChanged = false;
+    for (Loop *L : LI) {
+      bool loopChanged = false;
+      do {
+        loopChanged = licmSingleLoopPass(L);
+        anyLoopChanged |= loopChanged;
+      } while (loopChanged);
+    }
+
+    return anyLoopChanged ? PreservedAnalyses::none()
+                          : PreservedAnalyses::all();
   }
 };
 
