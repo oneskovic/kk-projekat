@@ -4,6 +4,23 @@ U ovoj optimizaciji cilj je da pronađemo instrukcije koje možemo bezbedno da i
 - **Možemo bezbedno da spekulativno izvršimo ovu instrukciju.** Kako bismo izbegli proveravanje da li se petlja izvrši barem jednom neke instrukcije možemo da izvršimo "spekulativno". Izvršiti instrukciju spekulativno znači izvršiti je iako se ona u početnom programu možda ne bi izvršila. Da bismo ovo smeli da uradimo moramo da osiguramo da nećemo promeniti ponašanje. Na primer instrukciju deljenja ne smemo da izvršimo spekulativno ako nismo sigurni da je delilac različit od nule.
 - **Instrukcija nema bočnih efekata.** Slično kao i u prethodnoj proveri - ako podignemo instrukciju van petlje ona će se sigurno izvršiti barem jednom, a moguće je da se telo petlje ne bi izvršilo ni jednom. Zato ćemo izbeći instrukcije koje mogu da imaju bočne efekte.
 
+## Podizanje load instrukcija
+Primetićemo da load instrukcije nemaju bočnih efekata i bezbedne su da se izvrše spekulativno. Međutim za njih je dodatno potrebno proveriti ne samo da li su njihovi argumenti invarijantni već da li neka druga instrukcija piše na istu tu memoriju. Ukoliko postoji takva druga instrukcija unutar petlje ne smemo podići load instrukciju van petlje.
+Za load instrukcije proveravamo i naredno:
+- Da li neka store instrukcija piše na istu memorijsku lokaciju kao i ova load instrukcija
+- Da li neka call instrukcija piše na tu lokaciju
+
+## Podizanje call instrukcija
+Za call instrukcije moramo takođe biti dodatno obazrivi. U našem prolazu trenutno razmatramo podizanje call instrukcija koje isključivo čitaju memoriju. Ukoliko pišu na neku memoriju onda ne pokušavamo da ih podignemo. 
+
+Za call instrukcije se takođe moramo postarati da su bezbedne da se izvrše spekulativno. Call instrukcije koje samo čitaju memoriju su bezbedne da se izvrše spekulativno **ukoliko ne proizvode izuzetke**. Dodatno postoje instrukcije koje nije dozvoljeno pomerati jer je neophodno da se izvrše u tačno zadatom redosledu - ovo su neke retke instrukcije koje se koriste u paralelnom programiranju i anotirane su llvm-u kao *convergent*.
+
+Sada radimo sa call instrukcijom koja isključivo čita memoriju i bezbedno je da je pomerimo i izvršimo spekulativno. Potrebno je još da proverimo slično kao za load - da li neka druga instrukcija (store ili call) piše na memoriju koja ova call instrukcija čita. Ukoliko to nije slučaj smemo da podignemo ovu instrkciju.
+
+LLVM nam pruža AA (Alias Analysis) prolaz u kom se izračunava da li dva neka dva pokazivača mogu pokazivati na istu memoriju pa i da li neke dve instrkcije čitaju ili pišu na istu memoriju. Generalno provera da li dva pokazivača pokazuju / mogu pokazivati na istu lokaciju u memoriji je neodlučiva. Dakle koji god algoritam da koristimo uvek ćemo kozervativno odbaciti neke pozive koji nikad neće zapravo pokazivati na istu memoriju.
+Svakako, ova provera je netrivijalna čak i konzervativno pa koristimo metodu `getModRefInfo` kako bi proverili da li neka dva poziva mogu da čitaju / pišu istu memoriju.
+
+## Analiza podizanja prostog izračunavanja iz petlje
 Razmotrimo sledeći primer:
 ```c
 int sum(int *A, int N) {
@@ -46,10 +63,10 @@ moguće podići van petlje, a narednu instrukciju nije:
 %17 = load i32, i32* %7, align 4
 ```
 Kada podignemo prvu instrukciju van petlje onda će svi argumenti naredne instrukcije za množenje biti invarijantni pa ćemo smeti i nju da podignemo itd.
-## Primer izvršavanja
+## Primer izvršavanja (podizanje izračunavanja iz petlje bez grananja)
 Ako na prethodnom C kodu pokrenemo ovu optimizaciju:
 ```sh
-opt -load-pass-plugin=./build/licm/LicmPass.so -passes="licm-pass" test.ll -S -o out.ll
+opt -load-pass-plugin=./build/licm/LicmPass.so -passes="module(instnamer,licm-pipeline)" examples/licm/simple_call/test.ll -S -o examples/licm/simple_call/out.ll
 ```
 Ukoliko takođe pokrenemo prolaz instnamer kako bismo dobili konzistentne nazive instrukcija i labeli dobićemo naredni kod:
 ```diff
@@ -94,3 +111,4 @@ bb26:                                             ; preds = %bb7
   ret i32 %i27
 }
 ```
+

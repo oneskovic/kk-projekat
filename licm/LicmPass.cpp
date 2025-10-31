@@ -27,10 +27,8 @@ struct LicmPass : PassInfoMixin<LicmPass> {
     return invariant;
   }
 
-  bool isLoadInstructionInvariant(LoadInst *LI, Loop *L,
-                                  ArrayRef<StoreInst *> loopStores,
-                                  ArrayRef<CallBase *> loopCalls,
-                                  AAResults &AA) {
+  bool canHoistLoad(LoadInst *LI, Loop *L, ArrayRef<StoreInst *> loopStores,
+                    ArrayRef<CallBase *> loopCalls, AAResults &AA) {
     if (LI->isVolatile() || LI->isAtomic())
       return false;
 
@@ -78,6 +76,10 @@ struct LicmPass : PassInfoMixin<LicmPass> {
                            ArrayRef<StoreInst *> loopStores,
                            ArrayRef<CallBase *> loopCalls) {
     if (!CB.onlyReadsMemory())
+      return false;
+    // Don't hoist instructions that must be executed in a specific order
+    // (multithreading code etc)
+    if (CB.isConvergent())
       return false;
     if (!CB.doesNotThrow())
       return false;
@@ -167,13 +169,13 @@ struct LicmPass : PassInfoMixin<LicmPass> {
         // Can't hoist a load instruction if it is not invariant
         // (the isLoopInvariant is not a sufficient check for loads)
         if (auto *LI = llvm::dyn_cast<llvm::LoadInst>(&I)) {
-          if (!isLoadInstructionInvariant(LI, L, loopStores, loopCalls, AA)) {
-            dbgs() << "Load instruction not invariant\n";
+          if (!canHoistLoad(LI, L, loopStores, loopCalls, AA)) {
+            dbgs() << "Can't hoist this store instruction\n";
             continue;
           }
         } else if (auto *CB = llvm::dyn_cast<llvm::CallBase>(&I)) {
           if (!canHoistCall(*CB, *L, AA, loopStores, loopCalls)) {
-            dbgs() << "Can't hoist call instruction\n";
+            dbgs() << "Can't hoist this call instruction\n";
             continue;
           }
         } else {
